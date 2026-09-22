@@ -1,0 +1,78 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RepoStatus {
+  PENDING
+  INDEXING
+  READY
+  FAILED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+model Repo {
+  id            String        @id @default(cuid())
+  githubUrl     String        @unique
+  owner         String
+  name          String
+  defaultBranch String
+  status        RepoStatus    @default(PENDING)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  files         File[]
+  chatSessions  ChatSession[]
+}
+
+model File {
+  id        String   @id @default(cuid())
+  repoId    String
+  path      String
+  language  String?
+  repo      Repo     @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  chunks    Chunk[]
+
+  @@index([repoId, path])
+}
+
+model Chunk {
+  id        String @id @default(cuid())
+  fileId    String
+  startLine Int
+  endLine   Int
+  vectorId  String @unique
+  file      File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+}
+
+model ChatSession {
+  id        String    @id @default(cuid())
+  repoId    String
+  repo      Repo      @relation(fields: [repoId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([repoId])
+}
+
+model Message {
+  id           String      @id @default(cuid())
+  sessionId    String
+  role         MessageRole
+  content      String      @db.Text
+  sourceChunks Json?
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+
+  @@index([sessionId, createdAt])
+}
