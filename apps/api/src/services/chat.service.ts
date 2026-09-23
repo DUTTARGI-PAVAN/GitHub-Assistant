@@ -28,7 +28,7 @@ export class ChatService {
             contents: query,
         });
 
-        const queryVector = embedRes.embedding?.values;
+        const queryVector = embedRes.embeddings?.[0]?.values;
         if (!queryVector) throw new Error('Could not embed search query');
 
         // 2. Query Pinecone with repoId metadata filter

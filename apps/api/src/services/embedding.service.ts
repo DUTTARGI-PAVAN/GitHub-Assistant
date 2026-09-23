@@ -37,11 +37,12 @@ export class EmbeddingService {
                 contents: text,
             });
 
-            if (!response.embedding?.values) {
+            const values = response.embeddings?.[0]?.values;
+            if (!values) {
                 throw new Error('Failed to retrieve vector values from Gemini API');
             }
 
-            embeddings.push(response.embedding.values);
+            embeddings.push(values);
         }
 
         return embeddings;
@@ -56,7 +57,7 @@ export class EmbeddingService {
         const batchSize = 100;
         for (let i = 0; i < records.length; i += batchSize) {
             const batch = records.slice(i, i + batchSize);
-            await index.upsert(batch);
+            await index.upsert({ records: batch });
         }
     }
 }
