@@ -72,7 +72,7 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
       } catch (err: any) {
         console.error('Error polling repo status:', err);
       }
-    }, 2500);
+    }, 1500);
   };
 
   useEffect(() => {

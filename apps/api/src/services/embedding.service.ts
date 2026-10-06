@@ -23,26 +23,37 @@ export interface VectorRecord {
 
 export class EmbeddingService {
     /**
-     * Generates 768-dimensional embeddings using Gemini text-embedding-004
+     * Generates 768-dimensional embeddings using Gemini gemini-embedding-001
+     * Processes in batches for 50x faster indexing.
      */
     static async generateEmbeddings(texts: string[]): Promise<number[][]> {
         if (texts.length === 0) return [];
 
         const embeddings: number[][] = [];
+        const batchSize = 50; // Gemini supports batch requests up to 100
 
-        // Process individually or in small batches to respect rate limits
-        for (const text of texts) {
+        for (let i = 0; i < texts.length; i += batchSize) {
+            const batch = texts.slice(i, i + batchSize).map((t) => t.trim() || ' ');
+
             const response = await ai.models.embedContent({
-                model: 'text-embedding-004',
-                contents: text,
+                model: 'gemini-embedding-001',
+                contents: batch,
+                config: {
+                    outputDimensionality: 768,
+                },
             });
 
-            const values = response.embeddings?.[0]?.values;
-            if (!values) {
+            const returnedEmbeddings = response.embeddings;
+            if (!returnedEmbeddings || returnedEmbeddings.length === 0) {
                 throw new Error('Failed to retrieve vector values from Gemini API');
             }
 
-            embeddings.push(values);
+            for (const item of returnedEmbeddings) {
+                if (!item.values) {
+                    throw new Error('Missing vector values in Gemini response');
+                }
+                embeddings.push(item.values);
+            }
         }
 
         return embeddings;

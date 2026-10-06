@@ -24,8 +24,11 @@ export class ChatService {
     static async searchRelevantChunks(repoId: string, query: string, topK = 5): Promise<RetrievedChunk[]> {
         // 1. Embed query with Gemini
         const embedRes = await ai.models.embedContent({
-            model: 'text-embedding-004',
+            model: 'gemini-embedding-001',
             contents: query,
+            config: {
+                outputDimensionality: 768,
+            },
         });
 
         const queryVector = embedRes.embeddings?.[0]?.values;

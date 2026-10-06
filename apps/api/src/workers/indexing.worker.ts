@@ -14,6 +14,14 @@ const redisConnection = new Redis({
     maxRetriesPerRequest: null,
 });
 
+interface PendingChunk {
+    fileRecordId: string;
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    content: string;
+}
+
 export const indexingWorker = new Worker(
     'repo-indexing',
     async (job: Job) => {
@@ -32,9 +40,9 @@ export const indexingWorker = new Worker(
             const files = await TarballService.extractFiles(owner, repo, defaultBranch);
             console.log(`📁 [Worker] Extracted ${files.length} code files to index.`);
 
-            const allVectorRecords: VectorRecord[] = [];
+            // 3. Process files and collect chunks for batch embedding
+            const pendingChunks: PendingChunk[] = [];
 
-            // 3. Process files and chunks
             for (const fileData of files) {
                 const fileRecord = await prisma.file.create({
                     data: {
@@ -45,55 +53,64 @@ export const indexingWorker = new Worker(
                 });
 
                 const chunks = ChunkerService.chunkFile(fileData.content);
-                if (chunks.length === 0) continue;
-
-                // Generate embeddings via Gemini (text-embedding-004)
-                const embeddings = await EmbeddingService.generateEmbeddings(
-                    chunks.map((c) => c.content)
-                );
-
-                for (let i = 0; i < chunks.length; i++) {
-                    const chunk = chunks[i];
-                    const vectorId = crypto.randomUUID();
-
-                    // Save chunk record to Postgres
-                    await prisma.chunk.create({
-                        data: {
-                            fileId: fileRecord.id,
-                            startLine: chunk.startLine,
-                            endLine: chunk.endLine,
-                            vectorId,
-                        },
-                    });
-
-                    // Prepare vector for Pinecone
-                    allVectorRecords.push({
-                        id: vectorId,
-                        values: embeddings[i],
-                        metadata: {
-                            repoId,
-                            filePath: fileData.path,
-                            startLine: chunk.startLine,
-                            endLine: chunk.endLine,
-                            text: chunk.content,
-                        },
+                for (const chunk of chunks) {
+                    pendingChunks.push({
+                        fileRecordId: fileRecord.id,
+                        filePath: fileData.path,
+                        startLine: chunk.startLine,
+                        endLine: chunk.endLine,
+                        content: chunk.content,
                     });
                 }
             }
 
-            // 4. Batch upsert vectors into Pinecone
+            console.log(`🧠 [Worker] Batch generating embeddings for ${pendingChunks.length} chunks via Gemini...`);
+            const embeddings = await EmbeddingService.generateEmbeddings(
+                pendingChunks.map((c) => c.content)
+            );
+
+            // 4. Save chunks to Postgres and prepare Pinecone vector records
+            const allVectorRecords: VectorRecord[] = [];
+
+            for (let i = 0; i < pendingChunks.length; i++) {
+                const chunk = pendingChunks[i];
+                const vectorId = crypto.randomUUID();
+
+                await prisma.chunk.create({
+                    data: {
+                        fileId: chunk.fileRecordId,
+                        startLine: chunk.startLine,
+                        endLine: chunk.endLine,
+                        vectorId,
+                    },
+                });
+
+                allVectorRecords.push({
+                    id: vectorId,
+                    values: embeddings[i],
+                    metadata: {
+                        repoId,
+                        filePath: chunk.filePath,
+                        startLine: chunk.startLine,
+                        endLine: chunk.endLine,
+                        text: chunk.content,
+                    },
+                });
+            }
+
+            // 5. Upsert vectors to Pinecone
             console.log(`📡 [Worker] Upserting ${allVectorRecords.length} vectors to Pinecone...`);
             await EmbeddingService.upsertVectors(allVectorRecords);
 
-            // 5. Mark repository status as READY
+            // 6. Mark repository status as READY
             await prisma.repo.update({
                 where: { id: repoId },
                 data: { status: 'READY' },
             });
 
-            console.log(`✨ [Worker] Successfully finished indexing repo ${repoId}`);
+            console.log(`✨ [Worker] Successfully finished indexing repo ${owner}/${repo} (${repoId})`);
         } catch (err: any) {
-            console.error(`💥 [Worker] Error during indexing:`, err);
+            console.error(`💥 [Worker] Error during indexing repo ${owner}/${repo}:`, err);
             await prisma.repo.update({
                 where: { id: repoId },
                 data: { status: 'FAILED' },

@@ -51,6 +51,13 @@ router.post('/ingest', async (req: Request, res: Response) => {
             },
         });
 
+        // Clean up previous files and existing BullMQ job if retrying
+        await prisma.file.deleteMany({ where: { repoId: repo.id } });
+        const existingJob = await indexingQueue.getJob(repo.id);
+        if (existingJob) {
+            await existingJob.remove();
+        }
+
         // Enqueue indexing job for BullMQ worker
         await indexingQueue.add(
             'index-repo',
@@ -61,8 +68,9 @@ router.post('/ingest', async (req: Request, res: Response) => {
                 defaultBranch: repo.defaultBranch,
             },
             {
-                jobId: repo.id, // Prevent duplicate active jobs for the same repo
+                jobId: repo.id,
                 removeOnComplete: true,
+                removeOnFail: true,
             }
         );
 
