@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
@@ -14,10 +14,14 @@ import {
   HelpCircle,
   Code2,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Plus,
+  Trash2,
+  History,
+  Loader2
 } from 'lucide-react';
-import type { RepoInfo, ChatMessage, SourceCitation } from '../types';
-import { streamChatMessage } from '../services/api';
+import type { RepoInfo, ChatMessage, SourceCitation, ChatSessionSummary } from '../types';
+import { streamChatMessage, getRepoSessions, getSessionMessages, deleteSession } from '../services/api';
 
 interface ChatViewProps {
   repo: RepoInfo;
@@ -35,7 +39,10 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -57,6 +64,60 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 180)}px`;
     }
   }, [input]);
+
+  // Load list of sessions for this repo
+  const loadSessions = useCallback(async () => {
+    try {
+      setLoadingSessions(true);
+      const data = await getRepoSessions(repo.id);
+      setSessions(data);
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [repo.id]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  // Switch to a past session and load its message history
+  const handleSelectSession = async (sessionId: string) => {
+    if (sessionId === activeSessionId || isGenerating) return;
+
+    try {
+      setLoadingMessages(true);
+      setActiveSessionId(sessionId);
+      const pastMessages = await getSessionMessages(sessionId);
+      setMessages(pastMessages);
+    } catch (err) {
+      console.error('Failed to load session messages:', err);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  // Start a fresh new chat conversation
+  const handleNewChat = () => {
+    if (isGenerating) return;
+    setActiveSessionId(undefined);
+    setMessages([]);
+  };
+
+  // Delete a session
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation();
+    try {
+      await deleteSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      if (activeSessionId === sessionId) {
+        handleNewChat();
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
+  };
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || input).trim();
@@ -89,11 +150,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
     try {
       await streamChatMessage({
         repoId: repo.id,
-        sessionId,
+        sessionId: activeSessionId,
         message: query,
         signal: abortController.signal,
         onCitations: (sources, newSessionId) => {
-          if (newSessionId) setSessionId(newSessionId);
+          if (newSessionId && !activeSessionId) {
+            setActiveSessionId(newSessionId);
+          }
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === assistantMsgId ? { ...msg, sources } : msg
@@ -116,6 +179,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
             )
           );
           setIsGenerating(false);
+          // Refresh sessions list to show newly created session or updated title
+          loadSessions();
         },
         onError: (err) => {
           setMessages((prev) =>
@@ -163,7 +228,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
 
   return (
     <div className="chat-layout animate-slide-up">
-      {/* Sidebar with repository metadata and suggestions */}
+      {/* Sidebar with repository metadata, past sessions, and suggestions */}
       <aside className="chat-sidebar glass-panel">
         <div className="sidebar-repo-card">
           <div className="repo-card-top">
@@ -192,6 +257,62 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
           </a>
         </div>
 
+        {/* New Chat Button */}
+        <button
+          id="new-chat-btn"
+          type="button"
+          className="new-chat-action-btn"
+          onClick={handleNewChat}
+          disabled={isGenerating}
+        >
+          <Plus size={16} />
+          <span>New Conversation</span>
+        </button>
+
+        {/* Sessions / Chat History Section */}
+        <div className="sidebar-section sessions-history-section">
+          <div className="sidebar-section-title">
+            <History size={14} />
+            <span>Chat History {sessions.length > 0 && `(${sessions.length})`}</span>
+          </div>
+
+          <div className="sessions-list-scroll">
+            {loadingSessions ? (
+              <div className="sidebar-loading-state">
+                <Loader2 size={16} className="animate-spin" />
+                <span>Loading sessions...</span>
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="no-sessions-hint">
+                <span>No past sessions yet. Ask a question to start!</span>
+              </div>
+            ) : (
+              sessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={`session-item-row ${s.id === activeSessionId ? 'active' : ''}`}
+                  onClick={() => handleSelectSession(s.id)}
+                >
+                  <MessageSquare size={14} className="session-icon" />
+                  <div className="session-details">
+                    <span className="session-title" title={s.title}>{s.title}</span>
+                    <span className="session-count">{s.messageCount} messages</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="delete-session-btn"
+                    onClick={(e) => handleDeleteSession(e, s.id)}
+                    title="Delete session"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Suggested Questions Section */}
         <div className="sidebar-section">
           <div className="sidebar-section-title">
             <HelpCircle size={14} />
@@ -212,28 +333,17 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
             ))}
           </div>
         </div>
-
-        <div className="sidebar-footer">
-          <button
-            id="clear-chat-history-btn"
-            type="button"
-            className="clear-chat-btn"
-            onClick={() => {
-              setMessages([]);
-              setSessionId(undefined);
-            }}
-            disabled={messages.length === 0 || isGenerating}
-          >
-            <MessageSquare size={14} />
-            <span>New Chat Session</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main Conversation Panel */}
       <main className="chat-main glass-panel">
         <div className="chat-messages-scroll">
-          {messages.length === 0 ? (
+          {loadingMessages ? (
+            <div className="empty-chat-state animate-slide-up">
+              <Loader2 size={36} className="animate-spin" style={{ color: 'var(--accent-primary)' }} />
+              <p>Restoring conversation history...</p>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="empty-chat-state animate-slide-up">
               <div className="empty-chat-icon-box animate-pulse-glow">
                 <Sparkles size={32} />
@@ -415,7 +525,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
             </div>
           </div>
           <div className="input-hint">
-            <span>Powered by Gemini 2.5 Flash • Exact code grounding from Pinecone</span>
+            <span>Powered by Gemini 2.5 Flash • Multi-turn conversational memory & Pinecone grounding</span>
           </div>
         </div>
       </main>

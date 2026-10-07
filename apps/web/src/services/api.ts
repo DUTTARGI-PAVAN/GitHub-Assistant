@@ -1,4 +1,4 @@
-import type { RepoInfo, SourceCitation } from '../types';
+import type { RepoInfo, SourceCitation, ChatMessage, ChatSessionSummary } from '../types';
 
 const API_BASE = ''; // Uses Vite proxy to /api
 
@@ -24,6 +24,34 @@ export async function checkRepoStatus(repoId: string): Promise<RepoInfo> {
     throw new Error(data.error || 'Failed to check repository status');
   }
   return data;
+}
+
+export async function getRepoSessions(repoId: string): Promise<ChatSessionSummary[]> {
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${repoId}`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to fetch sessions');
+  }
+  return data;
+}
+
+export async function getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}/messages`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to fetch session messages');
+  }
+  return data;
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to delete session');
+  }
 }
 
 export interface StreamChatParams {

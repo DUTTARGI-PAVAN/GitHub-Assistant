@@ -26,3 +26,12 @@ export interface ChatMessage {
   createdAt?: string;
   isStreaming?: boolean;
 }
+
+export interface ChatSessionSummary {
+  id: string;
+  repoId: string;
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  messageCount: number;
+}

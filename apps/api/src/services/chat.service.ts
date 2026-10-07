@@ -60,7 +60,8 @@ export class ChatService {
     static async streamChatAnswer(
         question: string,
         chunks: RetrievedChunk[],
-        onToken: (token: string) => void
+        onToken: (token: string) => void,
+        history: { role: string; content: string }[] = []
     ): Promise<string> {
         const contextBlock = chunks
             .map(
@@ -69,8 +70,17 @@ export class ChatService {
             )
             .join('\n\n');
 
+        const historyBlock =
+            history.length > 0
+                ? `\n---\nRECENT CONVERSATION HISTORY:\n` +
+                  history
+                      .map((h) => `${h.role === 'USER' ? 'User' : 'Assistant'}: ${h.content}`)
+                      .join('\n') +
+                  `\n---`
+                : '';
+
         const prompt = `You are a knowledgeable assistant analyzing a GitHub repository.
-Answer the user's question accurately using ONLY the provided code context.
+Answer the user's question accurately using ONLY the provided code context and recent conversation history.
 If the answer cannot be determined from the code context, state that clearly.
 Always cite your sources by mentioning the file path and line numbers when explaining code logic.
 
@@ -78,6 +88,7 @@ Always cite your sources by mentioning the file path and line numbers when expla
 CODE CONTEXT:
 ${contextBlock}
 ---
+${historyBlock}
 
 USER QUESTION:
 ${question}`;
