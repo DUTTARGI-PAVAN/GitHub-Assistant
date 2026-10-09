@@ -93,18 +93,36 @@ ${historyBlock}
 USER QUESTION:
 ${question}`;
 
-        const responseStream = await ai.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-        });
+        const candidateModels = ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
+        let lastError: any = null;
 
-        let fullAnswer = '';
-        for await (const chunk of responseStream) {
-            const text = chunk.text || '';
-            fullAnswer += text;
-            onToken(text);
+        for (const modelName of candidateModels) {
+            try {
+                const responseStream = await ai.models.generateContentStream({
+                    model: modelName,
+                    contents: prompt,
+                });
+
+                let fullAnswer = '';
+                for await (const chunk of responseStream) {
+                    const text = chunk.text || '';
+                    fullAnswer += text;
+                    onToken(text);
+                }
+
+                return fullAnswer;
+            } catch (err: any) {
+                lastError = err;
+                console.warn(`⚠️ [ChatService] Model ${modelName} returned error:`, err.message || err);
+                // If it's a 503 high demand or temporary error, continue to next fallback candidate
+                if (err.status === 503 || String(err.message).includes('503') || String(err.message).includes('high demand')) {
+                    console.log(`🔄 [ChatService] Falling back to next available model...`);
+                    continue;
+                }
+                throw err;
+            }
         }
 
-        return fullAnswer;
+        throw lastError;
     }
 }

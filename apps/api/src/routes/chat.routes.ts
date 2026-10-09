@@ -186,11 +186,23 @@ router.post('/stream', async (req: Request, res: Response) => {
         res.write(`event: done\ndata: [DONE]\n\n`);
         res.end();
     } catch (error: any) {
+        let cleanMsg = error.message || 'Chat error';
+        try {
+            const parsed = JSON.parse(cleanMsg);
+            if (parsed.error?.message) {
+                cleanMsg = parsed.error.message;
+            }
+        } catch {}
+
+        if (cleanMsg.includes('503') || cleanMsg.includes('high demand')) {
+            cleanMsg = 'AI servers are temporarily experiencing high traffic. Please retry in a few seconds.';
+        }
+
         if (res.headersSent) {
-            res.write(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
+            res.write(`event: error\ndata: ${JSON.stringify({ error: cleanMsg })}\n\n`);
             return res.end();
         }
-        return res.status(400).json({ error: error.message || 'Chat error' });
+        return res.status(500).json({ error: cleanMsg });
     }
 });
 

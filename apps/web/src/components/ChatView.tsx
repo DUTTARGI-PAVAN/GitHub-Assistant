@@ -525,7 +525,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
             </div>
           </div>
           <div className="input-hint">
-            <span>Powered by Gemini 2.5 Flash • Multi-turn conversational memory & Pinecone grounding</span>
+            <span>Powered by Gemini 3.8 Flash • Multi-turn conversational memory & Pinecone grounding</span>
           </div>
         </div>
       </main>

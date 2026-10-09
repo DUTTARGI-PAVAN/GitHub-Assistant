@@ -140,7 +140,7 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
           Chat with any <span className="hero-highlight">GitHub Repository</span>
         </h1>
         <p className="hero-subtext">
-          Deep codebase intelligence powered by Gemini 2.5 Flash and Pinecone vector search.
+          Deep codebase intelligence powered by Gemini 3.8 Flash and Pinecone vector search.
           Extract code, find architectures, and inspect precise line citations in seconds.
         </p>
       </div>
@@ -261,7 +261,7 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
           <div className="feature-icon-box">
             <Cpu size={20} />
           </div>
-          <h3>Gemini 2.5 Flash RAG</h3>
+          <h3>Gemini 3.8 Flash RAG</h3>
           <p>Context-aware answers generated specifically from retrieved code segments with high factual grounding.</p>
         </div>
 
