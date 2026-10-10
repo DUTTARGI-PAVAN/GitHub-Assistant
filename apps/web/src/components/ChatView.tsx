@@ -18,10 +18,13 @@ import {
   Plus,
   Trash2,
   History,
-  Loader2
+  Loader2,
+  FolderTree,
+  Search,
+  FileText
 } from 'lucide-react';
-import type { RepoInfo, ChatMessage, SourceCitation, ChatSessionSummary } from '../types';
-import { streamChatMessage, getRepoSessions, getSessionMessages, deleteSession } from '../services/api';
+import type { RepoInfo, ChatMessage, SourceCitation, ChatSessionSummary, RepoFile } from '../types';
+import { streamChatMessage, getRepoSessions, getSessionMessages, deleteSession, getRepoFiles } from '../services/api';
 
 interface ChatViewProps {
   repo: RepoInfo;
@@ -44,6 +47,12 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+
+  // Files tab state
+  const [activeSidebarTab, setActiveSidebarTab] = useState<'chat' | 'files'>('chat');
+  const [repoFiles, setRepoFiles] = useState<RepoFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -81,6 +90,25 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
+
+  // Load indexed files for this repo
+  const loadFiles = useCallback(async () => {
+    try {
+      setLoadingFiles(true);
+      const res = await getRepoFiles(repo.id);
+      setRepoFiles(res.files);
+    } catch (err) {
+      console.error('Failed to load repository files:', err);
+    } finally {
+      setLoadingFiles(false);
+    }
+  }, [repo.id]);
+
+  useEffect(() => {
+    if (activeSidebarTab === 'files' && repoFiles.length === 0) {
+      loadFiles();
+    }
+  }, [activeSidebarTab, loadFiles, repoFiles.length]);
 
   // Switch to a past session and load its message history
   const handleSelectSession = async (sessionId: string) => {
@@ -226,9 +254,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
     }
   };
 
+  const filteredFiles = repoFiles.filter((f) =>
+    f.path.toLowerCase().includes(fileSearchQuery.toLowerCase())
+  );
+
   return (
     <div className="chat-layout animate-slide-up">
-      {/* Sidebar with repository metadata, past sessions, and suggestions */}
+      {/* Sidebar with repository metadata, past sessions, and files explorer */}
       <aside className="chat-sidebar glass-panel">
         <div className="sidebar-repo-card">
           <div className="repo-card-top">
@@ -243,7 +275,18 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
             <span className="meta-tag branch-tag">
               Branch: {repo.defaultBranch || 'main'}
             </span>
-            <span className="meta-tag status-ready">Indexed</span>
+            <button 
+              type="button" 
+              className="meta-tag file-count-tag"
+              onClick={() => {
+                setActiveSidebarTab('files');
+                if (repoFiles.length === 0) loadFiles();
+              }}
+              title="Browse indexed files"
+            >
+              <FileCode size={11} />
+              <span>{repo.fileCount ? `${repo.fileCount} files` : 'Files'}</span>
+            </button>
           </div>
 
           <a
@@ -257,82 +300,162 @@ export const ChatView: React.FC<ChatViewProps> = ({ repo, onOpenCitation }) => {
           </a>
         </div>
 
-        {/* New Chat Button */}
-        <button
-          id="new-chat-btn"
-          type="button"
-          className="new-chat-action-btn"
-          onClick={handleNewChat}
-          disabled={isGenerating}
-        >
-          <Plus size={16} />
-          <span>New Conversation</span>
-        </button>
+        {/* Sidebar Navigation Tabs */}
+        <div className="sidebar-tabs-nav">
+          <button
+            type="button"
+            className={`sidebar-tab-btn ${activeSidebarTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveSidebarTab('chat')}
+          >
+            <MessageSquare size={14} />
+            <span>Chat</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-tab-btn ${activeSidebarTab === 'files' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveSidebarTab('files');
+              if (repoFiles.length === 0) loadFiles();
+            }}
+          >
+            <FolderTree size={14} />
+            <span>Files {repoFiles.length > 0 && `(${repoFiles.length})`}</span>
+          </button>
+        </div>
 
-        {/* Sessions / Chat History Section */}
-        <div className="sidebar-section sessions-history-section">
-          <div className="sidebar-section-title">
-            <History size={14} />
-            <span>Chat History {sessions.length > 0 && `(${sessions.length})`}</span>
-          </div>
+        {/* TAB 1: Chat Sessions & Suggestions */}
+        {activeSidebarTab === 'chat' && (
+          <>
+            <button
+              id="new-chat-btn"
+              type="button"
+              className="new-chat-action-btn"
+              onClick={handleNewChat}
+              disabled={isGenerating}
+            >
+              <Plus size={16} />
+              <span>New Conversation</span>
+            </button>
 
-          <div className="sessions-list-scroll">
-            {loadingSessions ? (
-              <div className="sidebar-loading-state">
-                <Loader2 size={16} className="animate-spin" />
-                <span>Loading sessions...</span>
+            <div className="sidebar-section sessions-history-section">
+              <div className="sidebar-section-title">
+                <History size={14} />
+                <span>Chat History {sessions.length > 0 && `(${sessions.length})`}</span>
               </div>
-            ) : sessions.length === 0 ? (
-              <div className="no-sessions-hint">
-                <span>No past sessions yet. Ask a question to start!</span>
-              </div>
-            ) : (
-              sessions.map((s) => (
-                <div
-                  key={s.id}
-                  className={`session-item-row ${s.id === activeSessionId ? 'active' : ''}`}
-                  onClick={() => handleSelectSession(s.id)}
-                >
-                  <MessageSquare size={14} className="session-icon" />
-                  <div className="session-details">
-                    <span className="session-title" title={s.title}>{s.title}</span>
-                    <span className="session-count">{s.messageCount} messages</span>
+
+              <div className="sessions-list-scroll">
+                {loadingSessions ? (
+                  <div className="sidebar-loading-state">
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Loading sessions...</span>
                   </div>
-                  <button
-                    type="button"
-                    className="delete-session-btn"
-                    onClick={(e) => handleDeleteSession(e, s.id)}
-                    title="Delete session"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+                ) : sessions.length === 0 ? (
+                  <div className="no-sessions-hint">
+                    <span>No past sessions yet. Ask a question to start!</span>
+                  </div>
+                ) : (
+                  sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      className={`session-item-row ${s.id === activeSessionId ? 'active' : ''}`}
+                      onClick={() => handleSelectSession(s.id)}
+                    >
+                      <MessageSquare size={14} className="session-icon" />
+                      <div className="session-details">
+                        <span className="session-title" title={s.title}>{s.title}</span>
+                        <span className="session-count">{s.messageCount} messages</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="delete-session-btn"
+                        onClick={(e) => handleDeleteSession(e, s.id)}
+                        title="Delete session"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
-        {/* Suggested Questions Section */}
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">
-            <HelpCircle size={14} />
-            <span>Suggested Questions</span>
+            <div className="sidebar-section">
+              <div className="sidebar-section-title">
+                <HelpCircle size={14} />
+                <span>Suggested Questions</span>
+              </div>
+              <div className="suggested-questions-list">
+                {SUGGESTED_QUESTIONS.map((q, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="suggested-q-btn"
+                    onClick={() => handleSendMessage(q)}
+                    disabled={isGenerating}
+                  >
+                    <span>{q}</span>
+                    <ChevronRight size={13} className="suggested-arrow" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* TAB 2: Indexed Files Explorer */}
+        {activeSidebarTab === 'files' && (
+          <div className="sidebar-section files-explorer-section">
+            <div className="sidebar-section-title">
+              <FileCode size={14} />
+              <span>Indexed Source Files ({repoFiles.length})</span>
+            </div>
+
+            <div className="file-search-wrapper">
+              <Search size={14} className="file-search-icon" />
+              <input
+                type="text"
+                className="file-search-input"
+                placeholder="Search files..."
+                value={fileSearchQuery}
+                onChange={(e) => setFileSearchQuery(e.target.value)}
+              />
+            </div>
+
+            <div className="files-list-scroll">
+              {loadingFiles ? (
+                <div className="sidebar-loading-state">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Loading indexed files...</span>
+                </div>
+              ) : filteredFiles.length === 0 ? (
+                <div className="no-sessions-hint">
+                  <span>{fileSearchQuery ? 'No matching files found.' : 'No files indexed.'}</span>
+                </div>
+              ) : (
+                filteredFiles.map((f) => (
+                  <div
+                    key={f.id}
+                    className="file-item-row"
+                    onClick={() => {
+                      setActiveSidebarTab('chat');
+                      handleSendMessage(`Explain the purpose, structure, and functions of ${f.path}`);
+                    }}
+                    title={`Click to ask about ${f.path}`}
+                  >
+                    <FileText size={14} className="file-item-icon" />
+                    <div className="file-item-details">
+                      <span className="file-item-path" title={f.path}>{f.path}</span>
+                      <span className="file-item-chunks">{f.chunkCount} {f.chunkCount === 1 ? 'chunk' : 'chunks'}</span>
+                    </div>
+                    {f.language && (
+                      <span className="file-lang-pill">{f.language}</span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-          <div className="suggested-questions-list">
-            {SUGGESTED_QUESTIONS.map((q, idx) => (
-              <button
-                key={idx}
-                type="button"
-                className="suggested-q-btn"
-                onClick={() => handleSendMessage(q)}
-                disabled={isGenerating}
-              >
-                <span>{q}</span>
-                <ChevronRight size={13} className="suggested-arrow" />
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
       </aside>
 
       {/* Main Conversation Panel */}

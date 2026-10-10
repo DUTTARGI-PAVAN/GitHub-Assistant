@@ -146,8 +146,11 @@ router.post('/stream', async (req: Request, res: Response) => {
             data: { updatedAt: new Date() },
         });
 
-        // 1. Vector retrieval from Pinecone
-        const relevantChunks = await ChatService.searchRelevantChunks(repoId, message, 5);
+        // 1. Contextualize follow-up questions using prior conversation history
+        const searchQuery = await ChatService.contextualizeQuery(message, history);
+
+        // 2. Vector retrieval from Pinecone
+        const relevantChunks = await ChatService.searchRelevantChunks(repoId, searchQuery, 5);
 
         // 2. Set up SSE Headers
         res.setHeader('Content-Type', 'text/event-stream');

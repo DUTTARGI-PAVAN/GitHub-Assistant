@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   ArrowRight, 
   Loader2, 
@@ -7,9 +7,11 @@ import {
   Cpu, 
   CheckCircle, 
   AlertTriangle,
-  FileCode2
+  FileCode2,
+  Trash2,
+  Database
 } from 'lucide-react';
-import { ingestRepository, checkRepoStatus } from '../services/api';
+import { ingestRepository, checkRepoStatus, getAllRepos, deleteRepo } from '../services/api';
 import type { RepoInfo } from '../types';
 
 const GithubIcon: React.FC<{ size?: number; className?: string }> = ({ size = 20, className }) => (
@@ -45,7 +47,26 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
   const [error, setError] = useState<string | null>(null);
   const [currentRepo, setCurrentRepo] = useState<RepoInfo | null>(null);
   const [stageText, setStageText] = useState('');
+  const [indexedRepos, setIndexedRepos] = useState<RepoInfo[]>([]);
+  const [loadingRepos, setLoadingRepos] = useState(false);
+
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadIndexedRepos = useCallback(async () => {
+    try {
+      setLoadingRepos(true);
+      const repos = await getAllRepos();
+      setIndexedRepos(repos);
+    } catch (err) {
+      console.error('Failed to load indexed repos:', err);
+    } finally {
+      setLoadingRepos(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadIndexedRepos();
+  }, [loadIndexedRepos]);
 
   const startPolling = (repoId: string) => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -59,11 +80,13 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
           if (pollingRef.current) clearInterval(pollingRef.current);
           setLoading(false);
           setStageText('Repository ready!');
+          loadIndexedRepos();
           setTimeout(() => onRepoReady(repo), 800);
         } else if (repo.status === 'FAILED') {
           if (pollingRef.current) clearInterval(pollingRef.current);
           setLoading(false);
           setError('Repository indexing failed. Please ensure the repository is public and accessible.');
+          loadIndexedRepos();
         } else if (repo.status === 'INDEXING') {
           setStageText('Downloading tarball, chunking code, and computing Gemini vector embeddings...');
         } else if (repo.status === 'PENDING') {
@@ -126,6 +149,16 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
   const handleSelectPreset = (url: string) => {
     setRepoUrl(url);
     setError(null);
+  };
+
+  const handleDeleteRepo = async (e: React.MouseEvent, repoId: string) => {
+    e.stopPropagation();
+    try {
+      await deleteRepo(repoId);
+      setIndexedRepos((prev) => prev.filter((r) => r.id !== repoId));
+    } catch (err: any) {
+      console.error('Failed to delete repository:', err);
+    }
   };
 
   return (
@@ -234,6 +267,74 @@ export const RepoIngestion: React.FC<RepoIngestionProps> = ({ onRepoReady }) => 
           </div>
         )}
 
+        {/* Existing Indexed Repositories Section */}
+        {indexedRepos.length > 0 && (
+          <div className="indexed-repos-section">
+            <div className="preset-label">
+              <Database size={15} style={{ color: 'var(--accent-primary)' }} />
+              <span>Your Indexed Repositories ({indexedRepos.length}):</span>
+              {loadingRepos && <Loader2 size={13} className="animate-spin" style={{ color: 'var(--text-dim)' }} />}
+            </div>
+
+            <div className="indexed-repos-grid">
+              {indexedRepos.map((repo) => (
+                <div
+                  key={repo.id}
+                  className="indexed-repo-card glass-panel"
+                  onClick={() => {
+                    if (repo.status === 'READY') onRepoReady(repo);
+                    else if (repo.status === 'INDEXING' || repo.status === 'PENDING') {
+                      setCurrentRepo(repo);
+                      setLoading(true);
+                      startPolling(repo.id);
+                    } else if (repo.status === 'FAILED') {
+                      setRepoUrl(repo.githubUrl || `https://github.com/${repo.owner}/${repo.name}`);
+                    }
+                  }}
+                >
+                  <div className="indexed-repo-header">
+                    <span className="indexed-repo-avatar">{repo.name.charAt(0).toUpperCase()}</span>
+                    <div className="indexed-repo-info">
+                      <span className="indexed-repo-name" title={repo.name}>{repo.name}</span>
+                      <span className="indexed-repo-owner">{repo.owner}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="delete-repo-btn"
+                      onClick={(e) => handleDeleteRepo(e, repo.id)}
+                      title="Delete repository"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+
+                  <div className="indexed-repo-footer">
+                    <span className={`status-pill ${repo.status.toLowerCase()}`}>
+                      {repo.status}
+                    </span>
+                    {repo.fileCount !== undefined && repo.fileCount > 0 && (
+                      <span className="indexed-file-count">
+                        <FileCode2 size={12} />
+                        {repo.fileCount} files
+                      </span>
+                    )}
+                    <span className="open-chat-hint">
+                      {repo.status === 'READY' ? (
+                        <>Open Chat <ArrowRight size={12} /></>
+                      ) : repo.status === 'FAILED' ? (
+                        <>Retry Indexing</>
+                      ) : (
+                        <>In Progress...</>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Preset Popular Repositories */}
         <div className="preset-section">
           <div className="preset-label">
             <Layers size={14} />

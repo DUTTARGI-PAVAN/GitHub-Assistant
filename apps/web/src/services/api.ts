@@ -1,4 +1,4 @@
-import type { RepoInfo, SourceCitation, ChatMessage, ChatSessionSummary } from '../types';
+import type { RepoInfo, SourceCitation, ChatMessage, ChatSessionSummary, RepoFile } from '../types';
 
 const API_BASE = ''; // Uses Vite proxy to /api
 
@@ -15,6 +15,34 @@ export async function ingestRepository(githubUrl: string): Promise<{ repoId: str
   }
 
   return data;
+}
+
+export async function getAllRepos(): Promise<RepoInfo[]> {
+  const res = await fetch(`${API_BASE}/api/repos`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to fetch repositories');
+  }
+  return data;
+}
+
+export async function getRepoFiles(repoId: string): Promise<{ files: RepoFile[]; totalFiles: number }> {
+  const res = await fetch(`${API_BASE}/api/repos/${repoId}/files`);
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to fetch repository files');
+  }
+  return data;
+}
+
+export async function deleteRepo(repoId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/repos/${repoId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to delete repository');
+  }
 }
 
 export async function checkRepoStatus(repoId: string): Promise<RepoInfo> {

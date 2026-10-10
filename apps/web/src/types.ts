@@ -35,3 +35,11 @@ export interface ChatSessionSummary {
   title: string;
   messageCount: number;
 }
+
+export interface RepoFile {
+  id: string;
+  path: string;
+  language: string | null;
+  chunkCount: number;
+}
+

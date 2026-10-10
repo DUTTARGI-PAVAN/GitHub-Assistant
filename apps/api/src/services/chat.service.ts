@@ -19,6 +19,47 @@ export interface RetrievedChunk {
 
 export class ChatService {
     /**
+     * Resolves follow-up questions into standalone search queries based on prior conversation context.
+     * If the query is already standalone or there is no history, returns the original query.
+     */
+    static async contextualizeQuery(
+        question: string,
+        history: { role: string; content: string }[] = []
+    ): Promise<string> {
+        if (!history || history.length === 0) {
+            return question;
+        }
+
+        try {
+            const prompt = `Given the following conversation history and a follow-up user question, rephrase the follow-up question into a clear, standalone search query for code retrieval.
+DO NOT answer the question. Only return the rephrased standalone query. If the question is already standalone, return it as-is.
+
+CONVERSATION HISTORY:
+${history.slice(-4).map((h) => `${h.role === 'USER' ? 'User' : 'Assistant'}: ${h.content.slice(0, 300)}`).join('\n')}
+
+FOLLOW-UP QUESTION:
+${question}
+
+STANDALONE QUERY:`;
+
+            const res = await ai.models.generateContent({
+                model: 'gemini-3.5-flash-lite',
+                contents: prompt,
+            });
+
+            const rephrased = res.text?.trim();
+            if (rephrased && rephrased.length > 3) {
+                console.log(`🔍 [ChatService] Rewrote follow-up query "${question}" -> "${rephrased}"`);
+                return rephrased;
+            }
+        } catch (err: any) {
+            console.warn('⚠️ [ChatService] Query contextualization fallback to original:', err.message || err);
+        }
+
+        return question;
+    }
+
+    /**
      * Searches Pinecone for the top-k chunks matching the user's question
      */
     static async searchRelevantChunks(repoId: string, query: string, topK = 5): Promise<RetrievedChunk[]> {
